@@ -23,6 +23,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"golang.org/x/net/context"
+	"golang.org/x/image/webp" 
 )
 
 var redisClient *redis.Client
@@ -94,79 +95,89 @@ func calculateMD5Hash(data []byte) string {
 }
 
 func extractMainColor(imgURL string) (string, error) {
-	md5Hash := calculateMD5Hash([]byte(imgURL))
+    md5Hash := calculateMD5Hash([]byte(imgURL))
 
-	if cacheEnabled && redisClient != nil {
-		cachedColor, err := redisClient.Get(ctx, md5Hash).Result()
-		if err == nil && cachedColor != "" {
-			return cachedColor, nil
-		}
-	}
+    if cacheEnabled && redisClient != nil {
+        cachedColor, err := redisClient.Get(ctx, md5Hash).Result()
+        if err == nil && cachedColor != "" {
+            return cachedColor, nil
+        }
+    }
 
-	req, err := http.NewRequest("GET", imgURL, nil)
-	if err != nil {
-		return "", err
-	}
+    req, err := http.NewRequest("GET", imgURL, nil)
+    if err != nil {
+        return "", err
+    }
 
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36 Edg/115.0.1901.253")
+    req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36 Edg/115.0.1901.253")
 
-	client := http.DefaultClient
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
+    client := http.DefaultClient
+    resp, err := client.Do(req)
+    if err != nil {
+        return "", err
+    }
+    defer resp.Body.Close()
 
-	var img image.Image
+    contentType := resp.Header.Get("Content-Type")
 
-	img, err = imaging.Decode(resp.Body)
+    var img image.Image
 
-	if err != nil {
-		return "", err
-	}
+    switch contentType {
+    case "image/webp":
+        img, err = webp.Decode(resp.Body)
+        if err != nil {
+            return "", fmt.Errorf("解码 WebP 图片时出错: %v", err)
+        }
+    default:
+        img, err = imaging.Decode(resp.Body)
+        if err != nil {
+            return "", fmt.Errorf("解码图片时出错: %v", err)
+        }
+    }
 
-	img = resize.Resize(50, 0, img, resize.Lanczos3)
+    img = resize.Resize(50, 0, img, resize.Lanczos3)
 
-	bounds := img.Bounds()
-	var r, g, b uint32
-	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			c := img.At(x, y)
-			r0, g0, b0, _ := c.RGBA()
-			r += r0
-			g += g0
-			b += b0
-		}
-	}
+    bounds := img.Bounds()
+    var r, g, b uint32
+    for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+        for x := bounds.Min.X; x < bounds.Max.X; x++ {
+            c := img.At(x, y)
+            r0, g0, b0, _ := c.RGBA()
+            r += r0
+            g += g0
+            b += b0
+        }
+    }
 
-	totalPixels := uint32(bounds.Dx() * bounds.Dy())
-	averageR := r / totalPixels
-	averageG := g / totalPixels
-	averageB := b / totalPixels
+    totalPixels := uint32(bounds.Dx() * bounds.Dy())
+    averageR := r / totalPixels
+    averageG := g / totalPixels
+    averageB := b / totalPixels
 
-	mainColor := colorful.Color{R: float64(averageR) / 0xFFFF, G: float64(averageG) / 0xFFFF, B: float64(averageB) / 0xFFFF}
+    mainColor := colorful.Color{R: float64(averageR) / 0xFFFF, G: float64(averageG) / 0xFFFF, B: float64(averageB) / 0xFFFF}
 
-	colorHex := mainColor.Hex()
+    colorHex := mainColor.Hex()
 
-	if cacheEnabled && redisClient != nil {
-		_, err := redisClient.Set(ctx, md5Hash, colorHex, 0).Result()
-		if err != nil {
-			log.Printf("将结果存储在缓存中时出错：%v\n", err)
-		}
-	}
+    if cacheEnabled && redisClient != nil {
+        _, err := redisClient.Set(ctx, md5Hash, colorHex, 0).Result()
+        if err != nil {
+            log.Printf("将结果存储在缓存中时出错：%v\n", err)
+        }
+    }
 
-	if useMongoDB && colorsCollection != nil {
-		_, err := colorsCollection.InsertOne(ctx, bson.M{
-			"url":   imgURL,
-			"color": colorHex,
-		})
-		if err != nil {
-			log.Printf("将结果存储在MongoDB中时出错：%v\n", err)
-		}
-	}
+    if useMongoDB && colorsCollection != nil {
+        _, err := colorsCollection.InsertOne(ctx, bson.M{
+            "url":   imgURL,
+            "color": colorHex,
+        })
+        if err != nil {
+            log.Printf("将结果存储在MongoDB中时出错：%v\n", err)
+        }
+    }
 
-	return colorHex, nil
+    return colorHex, nil
 }
+
 
 func handleImageColor(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
