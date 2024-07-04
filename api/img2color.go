@@ -1,3 +1,4 @@
+// 可以运行    webp 支持
 package handler
 
 import (
@@ -10,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -34,7 +34,6 @@ var redisDB int
 var mongoDB string
 var ctx = context.Background()
 var colorsCollection *mongo.Collection
-var allowedReferers []string
 
 func init() {
 	currentDir, err := os.Getwd()
@@ -57,7 +56,6 @@ func init() {
 	redisDBStr := os.Getenv("REDIS_DB")
 	mongoDB = os.Getenv("MONGO_DB")
 	mongoURI := os.Getenv("MONGO_URI")
-	referers := os.Getenv("ALLOWED_REFERERS")
 
 	redisDB, err = strconv.Atoi(redisDBStr)
 	if err != nil {
@@ -85,8 +83,6 @@ func init() {
 
 		colorsCollection = mongoClient.Database(mongoDB).Collection("colors")
 	}
-
-	allowedReferers = parseReferers(referers)
 }
 
 func calculateMD5Hash(data []byte) string {
@@ -218,28 +214,12 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 	handleImageColor(w, r)
 }
 
-func parseReferers(referers string) []string {
-	refererList := strings.Split(referers, ",")
-	for i, referer := range refererList {
-		refererList[i] = strings.TrimSpace(referer)
-	}
-	return refererList
-}
-
 func isRefererAllowed(referer string) bool {
-	if len(allowedReferers) == 0 {
+	allowedReferer := "https://blog.775866.xyz"
+
+	if strings.HasPrefix(referer, allowedReferer) {
 		return true
 	}
-
-	for _, allowedReferer := range allowedReferers {
-		allowedReferer = strings.ReplaceAll(allowedReferer, ".", "\\.")
-		allowedReferer = strings.ReplaceAll(allowedReferer, "*", ".*")
-		match, _ := regexp.MatchString(allowedReferer, referer)
-		if match {
-			return true
-		}
-	}
-
 	return false
 }
 
