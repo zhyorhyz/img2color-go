@@ -52,3 +52,4 @@ go run /api/img2color.go
 | MONGO_DB                | mongodb数据库名                      |
 | PORT                    | 端口                                 |
 | ALLOWED_REFERERS        | 允许的refer域名，支持通配符，如果有多个地址可以用英文半角,隔开 |
+原来的项目不支持webp格式的图片，现已支持
