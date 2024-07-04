@@ -227,7 +227,10 @@ func isRefererAllowed(referer string) bool {
 	}
 
 	for _, allowedReferer := range allowedReferers {
-		if strings.Contains(referer, allowedReferer) {
+		allowedReferer = strings.ReplaceAll(allowedReferer, ".", "\\.")
+		allowedReferer = strings.ReplaceAll(allowedReferer, "*", ".*")
+		match, _ := regexp.MatchString(allowedReferer, referer)
+		if match {
 			return true
 		}
 	}
@@ -236,7 +239,7 @@ func isRefererAllowed(referer string) bool {
 }
 
 func main() {
-	http.HandleFunc("/api", handleImageColor)
+	http.HandleFunc("/api", Handler)
 
 	port := os.Getenv("PORT")
 	if port == "" {
