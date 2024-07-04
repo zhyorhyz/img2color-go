@@ -1,29 +1,29 @@
 package handler
 
 import (
-	"crypto/md5"
-	"encoding/base64"
-	"encoding/json"
-	"fmt"
-	"image"
-	"log"
-	"net/http"
-	"os"
-	"path/filepath"
-	"regexp"
-	"strconv"
-	"strings"
+    "crypto/md5"
+    "encoding/base64"
+    "encoding/json"
+    "fmt"
+    "image"
+    "log"
+    "net/http"
+    "os"
+    "path/filepath"
+    "regexp"
+    "strconv"
+    "strings"
+    "time"
 
-	"github.com/go-redis/redis/v8"
-	"github.com/joho/godotenv"
-	"github.com/lucasb-eyer/go-colorful"
-	"github.com/nfnt/resize"
-	"github.com/disintegration/imaging"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	"golang.org/x/net/context"
-	"golang.org/x/image/webp" 
+    "github.com/go-redis/redis/v8"
+    "github.com/joho/godotenv"
+    "github.com/lucasb-eyer/go-colorful"
+    "github.com/nfnt/resize"
+    "github.com/disintegration/imaging"
+    "go.mongodb.org/mongo-driver/bson"
+    "go.mongodb.org/mongo-driver/mongo"
+    "go.mongodb.org/mongo-driver/mongo/options"
+    "golang.org/x/net/context"
 )
 
 var redisClient *redis.Client
@@ -37,61 +37,61 @@ var colorsCollection *mongo.Collection
 var allowedReferers []string
 
 func init() {
-	currentDir, err := os.Getwd()
-	if err != nil {
-		fmt.Printf("获取当前工作目录路径时出错：%v\n", err)
-		return
-	}
+    currentDir, err := os.Getwd()
+    if err != nil {
+        fmt.Printf("获取当前工作目录路径时出错：%v\n", err)
+        return
+    }
 
-	envFile := filepath.Join(currentDir, ".env")
+    envFile := filepath.Join(currentDir, ".env")
 
-	err = godotenv.Load(envFile)
-	if err != nil {
-		fmt.Printf("加载 .env 文件时出错：%v\n", err)
-		return
-	}
+    err = godotenv.Load(envFile)
+    if err != nil {
+        fmt.Printf("加载 .env 文件时出错：%v\n", err)
+        return
+    }
 
-	redisAddr := os.Getenv("REDIS_ADDRESS")
-	redisPassword := os.Getenv("REDIS_PASSWORD")
-	cacheEnabledStr := os.Getenv("USE_REDIS_CACHE")
-	redisDBStr := os.Getenv("REDIS_DB")
-	mongoDB = os.Getenv("MONGO_DB")
-	mongoURI := os.Getenv("MONGO_URI")
-	referers := os.Getenv("ALLOWED_REFERERS")
+    redisAddr := os.Getenv("REDIS_ADDRESS")
+    redisPassword := os.Getenv("REDIS_PASSWORD")
+    cacheEnabledStr := os.Getenv("USE_REDIS_CACHE")
+    redisDBStr := os.Getenv("REDIS_DB")
+    mongoDB = os.Getenv("MONGO_DB")
+    mongoURI := os.Getenv("MONGO_URI")
+    referers := os.Getenv("ALLOWED_REFERERS")
 
-	redisDB, err = strconv.Atoi(redisDBStr)
-	if err != nil {
-		redisDB = 0
-	}
+    redisDB, err = strconv.Atoi(redisDBStr)
+    if err != nil {
+        redisDB = 0
+    }
 
-	redisClient = redis.NewClient(&redis.Options{
-		Addr:     redisAddr,
-		Password: redisPassword,
-		DB:       redisDB,
-	})
+    redisClient = redis.NewClient(&redis.Options{
+        Addr:     redisAddr,
+        Password: redisPassword,
+        DB:       redisDB,
+    })
 
-	cacheEnabled = cacheEnabledStr == "true"
+    cacheEnabled = cacheEnabledStr == "true"
 
-	useMongoDBStr := os.Getenv("USE_MONGODB")
-	useMongoDB = useMongoDBStr == "true"
-	if useMongoDB {
-		log.Println("连接到MongoDB...")
-		clientOptions := options.Client().ApplyURI(mongoURI)
-		mongoClient, err = mongo.Connect(ctx, clientOptions)
-		if err != nil {
-			log.Fatalf("连接到MongoDB时出错：%v", err)
-		}
-		log.Println("已连接到MongoDB！")
+    useMongoDBStr := os.Getenv("USE_MONGODB")
+    useMongoDB = useMongoDBStr == "true"
+    if useMongoDB {
+        log.Println("连接到MongoDB...")
+        clientOptions := options.Client().ApplyURI(mongoURI)
+        mongoClient, err = mongo.Connect(ctx, clientOptions)
+        if err != nil {
+            log.Fatalf("连接到MongoDB时出错：%v", err)
+        }
+        log.Println("已连接到MongoDB！")
 
-		colorsCollection = mongoClient.Database(mongoDB).Collection("colors")
-	}
+        colorsCollection = mongoClient.Database(mongoDB).Collection("colors")
+    }
 
-	allowedReferers = parseReferers(referers)
+    allowedReferers = parseReferers(referers)
 }
 
 func calculateMD5Hash(data []byte) string {
-	hash := md5.Sum(data)
-	return base64.StdEncoding.EncodeToString(hash[:])
+    hash := md5.Sum(data)
+    return base64.StdEncoding.EncodeToString(hash[:])
 }
 
 func extractMainColor(imgURL string) (string, error) {
@@ -118,21 +118,9 @@ func extractMainColor(imgURL string) (string, error) {
     }
     defer resp.Body.Close()
 
-    contentType := resp.Header.Get("Content-Type")
-
-    var img image.Image
-
-    switch contentType {
-    case "image/webp":
-        img, err = webp.Decode(resp.Body)
-        if err != nil {
-            return "", fmt.Errorf("解码 WebP 图片时出错: %v", err)
-        }
-    default:
-        img, err = imaging.Decode(resp.Body)
-        if err != nil {
-            return "", fmt.Errorf("解码图片时出错: %v", err)
-        }
+    img, format, err := detectImageFormat(resp.Body)
+    if err != nil {
+        return "", err
     }
 
     img = resize.Resize(50, 0, img, resize.Lanczos3)
@@ -155,106 +143,122 @@ func extractMainColor(imgURL string) (string, error) {
     averageB := b / totalPixels
 
     mainColor := colorful.Color{R: float64(averageR) / 0xFFFF, G: float64(averageG) / 0xFFFF, B: float64(averageB) / 0xFFFF}
-
     colorHex := mainColor.Hex()
 
-    if cacheEnabled && redisClient != nil {
-        _, err := redisClient.Set(ctx, md5Hash, colorHex, 0).Result()
-        if err != nil {
-            log.Printf("将结果存储在缓存中时出错：%v\n", err)
-        }
-    }
-
-    if useMongoDB && colorsCollection != nil {
-        _, err := colorsCollection.InsertOne(ctx, bson.M{
-            "url":   imgURL,
-            "color": colorHex,
-        })
-        if err != nil {
-            log.Printf("将结果存储在MongoDB中时出错：%v\n", err)
-        }
-    }
+    storeColorInCacheAndDB(md5Hash, colorHex, imgURL)
 
     return colorHex, nil
 }
 
+func detectImageFormat(reader io.Reader) (image.Image, imaging.Format, error) {
+    // 重置读取器的位置，确保可以多次读取
+    if _, err := reader.Seek(0, 0); err != nil {
+        return nil, imaging.FormatUnknown, err
+    }
 
-func handleImageColor(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Referer")
+    img, format, err := image.Decode(reader)
+    if err != nil {
+        return nil, imaging.FormatUnknown, err
+    }
 
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	referer := r.Header.Get("Referer")
-	if !isRefererAllowed(referer) {
-		http.Error(w, "禁止访问", http.StatusForbidden)
-		return
-	}
-
-	imgURL := r.URL.Query().Get("img")
-	if imgURL == "" {
-		http.Error(w, "缺少img参数", http.StatusBadRequest)
-		return
-	}
-
-	color, err := extractMainColor(imgURL)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("提取主色调失败：%v", err), http.StatusInternalServerError)
-		return
-	}
-
-	data := map[string]string{
-		"RGB": color,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(data)
+    return img, format, nil
 }
 
-func Handler(w http.ResponseWriter, r *http.Request) {
-	handleImageColor(w, r)
+func storeColorInCacheAndDB(hash, color, url string) {
+    if cacheEnabled && redisClient != nil {
+        err := redisClient.Set(ctx, hash, color, 24*time.Hour).Err()
+        if err != nil {
+            log.Printf("设置Redis缓存失败: %v", err)
+        }
+    }
+
+    if useMongoDB && colorsCollection != nil {
+        _, err := colorsCollection.UpdateOne(
+            ctx,
+            bson.M{"image_url": url},
+            bson.M{"$set": bson.M{"main_color": color}},
+            options.Update().SetUpsert(true),
+        )
+        if err != nil {
+            log.Printf("更新MongoDB文档失败: %v", err)
+        }
+    }
+}
+
+func handleImageColor(w http.ResponseWriter, r *http.Request) {
+    w.Header().Set("Access-Control-Allow-Origin", "*")
+    w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+    w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Referer")
+
+    if r.Method == http.MethodOptions {
+        w.WriteHeader(http.StatusOK)
+        return
+    }
+
+    referer := r.Header.Get("Referer")
+    if !isRefererAllowed(referer) {
+        http.Error(w, "禁止访问", http.StatusForbidden)
+        return
+    }
+
+    imgURL := r.URL.Query().Get("img")
+    if imgURL == "" {
+        http.Error(w, "缺少img参数", http.StatusBadRequest)
+        return
+    }
+
+    color, err := extractMainColor(imgURL)
+    if err != nil {
+        http.Error(w, fmt.Sprintf("提取主色调失败：%v", err), http.StatusInternalServerError)
+        return
+    }
+
+    data := map[string]string{
+        "RGB": color,
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(data)
 }
 
 func parseReferers(referers string) []string {
-	refererList := strings.Split(referers, ",")
-	for i, referer := range refererList {
-		refererList[i] = strings.TrimSpace(referer)
-	}
-	return refererList
+    refererList := strings.Split(referers, ",")
+    for i, referer := range refererList {
+        refererList[i] = strings.TrimSpace(referer)
+    }
+    return refererList
 }
 
 func isRefererAllowed(referer string) bool {
-	if len(allowedReferers) == 0 {
-		return true
-	}
+    if len(allowedReferers) == 0 {
+        return false
+    }
 
-	for _, allowedReferer := range allowedReferers {
-		allowedReferer = strings.ReplaceAll(allowedReferer, ".", "\\.")
-		allowedReferer = strings.ReplaceAll(allowedReferer, "*", ".*")
-		match, _ := regexp.MatchString(allowedReferer, referer)
-		if match {
-			return true
-		}
-	}
+    for _, allowedReferer := range allowedReferers {
+        allowedReferer = strings.ReplaceAll(allowedReferer, ".", "\\.")
+        allowedReferer = strings.ReplaceAll(allowedReferer, "*", ".*")
+        match, _ := regexp.MatchString(allowedReferer, referer)
+        if match {
+            return true
+        }
+    }
 
-	return false
+    return false
 }
 
 func main() {
-	http.HandleFunc("/api", Handler)
+    allowedReferers := parseReferers(os.Getenv("ALLOWED_REFERERS"))
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "3000"
-	}
+    http.HandleFunc("/api", handleImageColor)
 
-	log.Printf("服务器监听在：%s...\n", port)
-	err := http.ListenAndServe(":"+port, nil)
-	if err != nil {
-		log.Fatalf("启动服务器时出错：%v\n", err)
-	}
+    port := os.Getenv("PORT")
+    if port == "" {
+        port = "3000"
+    }
+
+    log.Printf("服务器监听在：%s...\n", port)
+    err := http.ListenAndServe(":"+port, nil)
+    if err != nil {
+        log.Fatalf("启动服务器时出错：%v\n", err)
+    }
 }
