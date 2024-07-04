@@ -22,8 +22,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"golang.org/x/image/webp" // 导入 WebP 支持库
 	"golang.org/x/net/context"
+	"golang.org/x/image/webp"
 )
 
 var redisClient *redis.Client
@@ -118,20 +118,21 @@ func extractMainColor(imgURL string) (string, error) {
 	}
 	defer resp.Body.Close()
 
+	contentType := resp.Header.Get("Content-Type")
+
 	var img image.Image
 
-	// 根据文件类型选择解码器
-	switch contentType := resp.Header.Get("Content-Type"); {
-	case strings.HasPrefix(contentType, "image/jpeg"), strings.HasPrefix(contentType, "image/png"):
-		img, err = imaging.Decode(resp.Body)
-	case strings.HasPrefix(contentType, "image/webp"):
+	switch contentType {
+	case "image/webp":
 		img, err = webp.Decode(resp.Body)
+		if err != nil {
+			return "", fmt.Errorf("解码 WebP 图片时出错: %v", err)
+		}
 	default:
-		return "", fmt.Errorf("不支持的图像格式: %s", contentType)
-	}
-
-	if err != nil {
-		return "", err
+		img, err = imaging.Decode(resp.Body)
+		if err != nil {
+			return "", fmt.Errorf("解码图片时出错: %v", err)
+		}
 	}
 
 	img = resize.Resize(50, 0, img, resize.Lanczos3)
@@ -211,6 +212,10 @@ func handleImageColor(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(data)
+}
+
+func Handler(w http.ResponseWriter, r *http.Request) {
+	handleImageColor(w, r)
 }
 
 func parseReferers(referers string) []string {
