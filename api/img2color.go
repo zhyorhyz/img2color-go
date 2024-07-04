@@ -1,8 +1,7 @@
-// 文件名：main.go
-
-package main
+package handler
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/base64"
 	"encoding/json"
@@ -26,7 +25,6 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"golang.org/x/net/context"
 )
 
 var redisClient *redis.Client
@@ -265,6 +263,3 @@ func main() {
 		log.Fatalf("启动服务器时出错：%v\n", err)
 	}
 }
-
-// 导出的函数，用于 Vercel 识别处理请求
-var Handler = http.HandlerFunc(handleImageColor)
